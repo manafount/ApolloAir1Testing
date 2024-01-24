@@ -146,8 +146,8 @@ binary_sensor:
 
 sensor:
   - platform: template
-    name: "ESP CPU Clock"
-    id: esp_cpu_mhz
+    name: "ESP CPU Speed"
+    id: esp_cpu_speed
     accuracy_decimals: 0
     unit_of_measurement: Mhz
     lambda: return ESP.getCpuFreqMHz();
@@ -174,7 +174,7 @@ sensor:
     entity_category: "diagnostic"
 
   - platform: wifi_signal # Reports the WiFi signal strength/RSSI in dBm
-    name: "WiFi Signal dBm"
+    name: "RSSI"
     id: wifi_signal_db
     force_update: True
     update_interval: 60s
@@ -184,7 +184,7 @@ sensor:
   # https://esphome.io/components/sensor/wifi_signal.html
   - platform: copy # Reports the WiFi signal strength in %
     source_id: wifi_signal_db
-    name: "WiFi Signal Percent"
+    name: "WiFi Signal Strength"
     filters:
       - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
     unit_of_measurement: "Signal %"
