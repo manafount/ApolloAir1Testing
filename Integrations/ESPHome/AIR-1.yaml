@@ -78,8 +78,12 @@ captive_portal:
 
 improv_serial:
 
-web_server:
-  port: 80
+# ESPHome notes that the Web Server Component will take up a lot of memory and potentially
+# decrease stability. Because the configurations available via the web server are also available
+# via the device page in HA, leaving this disabled seems like a prudent option unless you have a
+# specific use case that demands it.
+# web_server:
+#   port: 80
 
 esp32_improv:
   authorizer: none
@@ -134,7 +138,6 @@ number:
     update_interval: never
     step: 0.1
     mode: box
-
 
 binary_sensor:
   - platform: status
