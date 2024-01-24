@@ -103,6 +103,7 @@ number:
     update_interval: never
     step: 0.1
     mode: box
+
   - platform: template
     name: SEN55 Humidity Offset
     id: sen55_humidity_offset
@@ -116,7 +117,24 @@ number:
     update_interval: never
     step: 0.1
     mode: box
-    
+
+  # Currently unused in preparation for the ability to update the internal temperature compensation
+  # offset/slope as described in the sen5x datasheets.
+  # More info: https://sensirion.com/media/documents/9B9DE2A7/61E957EB/Sensirion_Temperature_Acceleration_and_Compensation_Instructions_SEN.pdf
+  - platform: template
+    name: SEN55 Internal Temperature Compensation
+    id: sen55_temperature_compensation
+    restore_value: true
+    initial_value: 0.0
+    min_value: -20.0
+    max_value: 20.0
+    entity_category: "CONFIG"
+    unit_of_measurement: "°C"
+    optimistic: true
+    update_interval: never
+    step: 0.1
+    mode: box
+
 
 binary_sensor:
   - platform: status
@@ -125,16 +143,18 @@ binary_sensor:
 
 sensor:
   - platform: template
-    name: "ESP Cpu Speed"
+    name: "ESP CPU Clock"
+    id: esp_cpu_mhz
     accuracy_decimals: 0
     unit_of_measurement: Mhz
-    lambda: |-
-      return (id(cpu_speed));
+    lambda: return ESP.getCpuFreqMHz();
     entity_category: "diagnostic"
 
   - platform: internal_temperature
     name: "ESP Temperature"
     id: sys_esp_temperature
+    update_interval: 30s
+    force_update: True
 
   - platform: uptime
     name: Uptime
@@ -150,18 +170,30 @@ sensor:
     state_class: measurement
     entity_category: "diagnostic"
 
-
-  - platform: wifi_signal
-    name: RSSI
+  - platform: wifi_signal # Reports the WiFi signal strength/RSSI in dBm
+    name: "WiFi Signal dBm"
     id: wifi_signal_db
+    force_update: True
     update_interval: 60s
     entity_category: "diagnostic"
+
+  # 'platform: copy' is used here because two sensors can't normally share the same source_id
+  # https://esphome.io/components/sensor/wifi_signal.html
+  - platform: copy # Reports the WiFi signal strength in %
+    source_id: wifi_signal_db
+    name: "WiFi Signal Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "Signal %"
+    entity_category: "diagnostic"
+    device_class: ""
 
   - platform: scd4x
     id: scd40
     co2:
       name: "CO2"
       id: "co2"
+      force_update: True
     automatic_self_calibration: false
     update_interval: 60s
     measurement_mode: "periodic"
@@ -201,11 +233,13 @@ sensor:
       accuracy_decimals: 1
       filters:
         - lambda: return x - id(sen55_temperature_offset).state;
+      force_update: True
     humidity:
       name: "SEN55 Humidity"
       filters:
         - lambda: return x - id(sen55_humidity_offset).state;
       accuracy_decimals: 0
+      force_update: True
     voc:
       name: "SEN55 VOC"
       id: sen55_voc
@@ -216,9 +250,32 @@ sensor:
         gating_max_duration_minutes: 180
         std_initial: 50
         gain_factor: 230
+      force_update: True
     nox:
       name: "SEN55 NOX"
-    acceleration_mode: low
+      force_update: True
+    # Changes the SEN55's internal temperature compensation algorithm, used for offsetting the
+    # effects of other local heat sources. Because the SEN55 is an all-in-one solution with many
+    # different sensors, the calibrations it performs for RH/VOC/NOx/PM are all affected by its
+    # own temperaturue sensor. Each SEN55 is calibrated by the factory in an open airflow setting
+    # on a wooden table, but these compensation values can be used by end usuers to adjust the
+    # factory compensation settings to suit their own environment and use case.
+    # More info:
+    # - https://esphome.io/components/sensor/sen5x.html#configuration-variables
+    # - https://sensirion.com/media/documents/9B9DE2A7/61E957EB/Sensirion_Temperature_Acceleration_and_Compensation_Instructions_SEN.pdf
+    temperature_compensation:
+      offset: 0.0
+      normalized_offset_slope: 0
+      time_constant: 0
+    # Acceleration Modes
+    # "The SEN5x comes with 3 different presets for the Sensirion temperature acceleration routine
+    # (STAR). In the default case a minor acceleration is applied. This setting works well for a
+    # standalone module such as for application in air purifiers. In the application of air quality
+    # monitors or mobile devices we recommend choosing between settings 1 and 2 for high and medium
+    # acceleration of the temperature measurement."
+    # In ESPHome's sen5x module, these values correspond to:
+    # 0 = low, 1 = medium, 2 = high
+    acceleration_mode: medium
     store_baseline: true
     address: 0x69
     update_interval: 10s
@@ -232,7 +289,7 @@ sensor:
     state_class: measurement
     icon: mdi:air-filter
     update_interval: 10s
-  
+
   - platform: template
     name: "PM 1 To 2.5 µm"
     id: pm1_to_2_5
@@ -242,7 +299,7 @@ sensor:
     state_class: measurement
     icon: mdi:air-filter
     update_interval: 10s
-  
+
   - platform: template
     name: "PM 2.5 To 4 µm"
     id: pm2_5_to_4
@@ -264,19 +321,29 @@ sensor:
 
   - platform: mics_4514
     id: mics4514
+    # Testing i2c and address config options added based on discussion in Issue #4268
+    # https://github.com/esphome/issues/issues/4268 ("mics_4514 not reporting data")
+    i2c_id: bus_a
+    address: 0x75
     nitrogen_dioxide:
       name: Nitrogen Dioxide
+      force_update: True
     carbon_monoxide:
       name: Carbon Monoxide
+      force_update: True
     hydrogen:
       name: Hydrogen
+      force_update: True
     ethanol:
       name: Ethanol
+      force_update: True
     methane:
       name: Methane
+      force_update: True
     ammonia:
       name: Ammonia
-    update_interval: 10s
+      force_update: True
+    update_interval: 60s
 
 light:
   - platform: esp32_rmt_led_strip
@@ -331,21 +398,21 @@ button:
       - sen5x.start_fan_autoclean: sen55
 
 text_sensor:
-    # Convert VOC Index To Text: 
-    # https://sensirion.com/media/documents/02232963/6294E043/Info_Note_VOC_Index.pdf
+  # Convert VOC Index To Text:
+  # https://sensirion.com/media/documents/02232963/6294E043/Info_Note_VOC_Index.pdf
   - platform: template
     name: "VOC Quality"
     id: voc_quality
     icon: mdi:air-filter
     lambda: |-
       if (id(sen55_voc).state < 80) {
-        return std::string("Improved");} 
+        return std::string("Improved");}
       else if (id(sen55_voc).state < 120) {
-        return std::string("Normal");} 
+        return std::string("Normal");}
       else if (id(sen55_voc).state < 200) {
-        return std::string("Abnormal");} 
+        return std::string("Abnormal");}
       else if (id(sen55_voc).state < 300) {
-        return std::string("Very abnormal");} 
+        return std::string("Very abnormal");}
       else {
         return std::string("Extremely abnormal");}
 
@@ -357,7 +424,6 @@ switch:
    restore_mode: RESTORE_DEFAULT_ON
    optimistic: true
    entity_category: "config"
-
 
 #Used To Control RGB Light On Startup. Tells User Status Of Device
 interval:
