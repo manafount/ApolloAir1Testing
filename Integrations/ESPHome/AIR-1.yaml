@@ -25,7 +25,7 @@ esp32:
 
 dashboard_import:
   package_import_url: github://ApolloAutomation/AIR-1/Integrations/ESPHome/AIR-1.yaml
-  import_full_config: false
+  import_full_config: true
 
 globals:
   - id: cpu_speed
